@@ -1,0 +1,98 @@
+---
+title: "Phone Services"
+author: "Connor Lachance"
+date: "3/9/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Extract the time stamps of tweets in each search term and use these time stamps to create a density plot that shows the density of the tweet times for all three search terms. Report the figure of the density plot. 
+```{r}
+rm(list=ls())
+library(rtweet)
+library(httpuv)
+library(ggplot2)
+
+#load data
+load('twitter_data.RData')
+n.tweets=unlist(lapply(searchResults, function(x) length(x$text)))
+# extract the time stamps 
+timeStamps=lapply(searchResults, function(x) x$created_at)
+create_time = data.frame(time=c(timeStamps$verizon,timeStamps$ATT,timeStamps$Tmobile),terms=rep(names(searchTerms),times=n.tweets))
+#density plot
+p = ggplot(create_time, aes(x=time))
+p+geom_density(aes(group=terms, color=terms, fill=terms), alpha=0.3)
+```
+
+#Get the sentiment scores. Plot the histogram of the average sentiment scores for each of the search term. Report the histogram plot.
+```{r}
+library(sentimentr)
+library(tidytext)
+library(dplyr)
+pre_process_fun = function(searchres) {
+  # This function performs some preprocessing of a tweet search results object
+  # Input: the search result obtained from search_tweets by using one set of key words.
+  # Output: the preprocessed text
+  
+  # do all preprocessing steps using the pipe operator %>%. 
+  searchres$stripped_text <- searchres$text %>% 
+    gsub("http.*", "", .) %>% 
+    gsub("@*", "", .) %>%  # remove all @ from the text
+    gsub("#*","", .)  %>% # remove all # from the text
+    #gsub('[[:punct:]]', '', .) %>% # remove Punctuations
+    gsub('[[:cntrl:]]', '', .) %>% # remove control characters
+    gsub('\\d+', '', .) %>%  # remove all digits
+    gsub("[^\x01-\x7F]", "", .)  %>%  # remove emoji
+    tolower()
+  
+  return(searchres)
+} 
+searchResults=lapply(searchResults,pre_process_fun)
+#sentiment scores
+sentiment.score=sentiment.score=lapply(searchResults,function(x){
+  x$stripped_text%>%
+    get_sentences()%>%
+    sentiment_by()
+})
+#histograms
+par(mfrow=c(2,2))
+hist(sentiment.score$verizon$ave_sentiment,freq = FALSE, xlab='', main='Verizon',breaks=10)
+hist(sentiment.score$Tmobile$ave_sentiment,freq = FALSE, xlab='', main='Tmobile',breaks=10)
+hist(sentiment.score$ATT$ave_sentiment,freq = FALSE, xlab='', main='AT&T',breaks=10)
+```
+
+#Calculate the number of very positive scores (>=0.2) and the number of very negative scores (<=-0.2). The overall scores will be the ratio between the number of very positive and very negative scores. Report the number of very positive scores and very negative scores as well as the overall scores for each search terms as a Table. 
+```{r}
+overall.score = lapply(sentiment.score, function(x){ 
+  n.very.pos = sum(x$ave_sentiment>=0.2)    
+  n.very.neg = sum(x$ave_sentiment<=-0.2)
+  very.score = round(n.very.pos/n.very.neg*100)
+  return(c(n.very.pos, n.very.neg, very.score))
+})
+SCORE=list2DF(overall.score)
+rownames(SCORE) = c('n.very.pos', 'n.very.neg','very.score')
+SCORE
+```
+
+#Scrape table from American Consumer Satisfaction Index (ACSI) website for Wireless Telephone Service: https://www.theacsi.org/index.php?option=com_content&view=article&id=147&catid=&Itemid=212&i=Wireless+Telephone+Service
+#Extract the ACSI scores of year 2020 for the three cell phone service providers. Compare the ACSI scores with the overall scores calculated above in a Table. Report the comparison table only and discuss the result (e.g.,are the ranking of the three company consistent? Which companies are ranked differently?).
+```{r}
+library(rvest) 
+url <- 'https://www.theacsi.org/index.php?option=com_content&view=article&id=147&catid=&Itemid=212&i=Wireless+Telephone+Service'
+webpage <- read_html(url) # read in the website.
+csi_table <- html_nodes(webpage,'table') # extract the HTML table element.
+table <- html_table(csi_table)[[1]] # convert it to data frame. 
+colnames(table)=c(NULL, table[1,])
+table = table[-1,]
+
+# getting the score from year 2020 for the three carriers from the ACSI table.
+ACSI=c(table[which(table[,1]=='Verizon Wireless'),which(colnames(table)=='20')],
+       table[which(table[,1]=='AT&T'),which(colnames(table)=='20')],
+      table[which(table[,1]=='T-Mobile'),which(colnames(table)=='20')])
+Output=cbind(t(SCORE[3,]),ACSI)
+Output
+```
+#The ranking of the companies were consistent between comparisons. The scores calculated in problem 3 told us that T-Mobile has the best sentiment  score with AT&T and Verizon being similar but well behind T-Mobile. This is also represented when getting the ACSI scores from the website since those scores also told us that T-Mobile had a higher score in 2020 than Verizon and AT&T. Also we got that verizon and at&t were similar and this is represented by the same score in the ACSI table.
